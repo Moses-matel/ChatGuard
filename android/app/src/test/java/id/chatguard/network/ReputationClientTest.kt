@@ -259,6 +259,31 @@ class ReputationClientTest {
     }
 
     @Test
+    fun check_handlesNullFlaggedUrlsCleanly() = runTest {
+        val jsonWithNullUrls = """
+            {
+                "verdict": "suspicious",
+                "threat_category": "Spyware",
+                "official_cert_match": null,
+                "flagged_urls": null
+            }
+        """.trimIndent()
+        server.enqueue(MockResponse().setResponseCode(200).setBody(jsonWithNullUrls))
+
+        val client = ReputationClient(
+            baseUrlProvider = { server.url("/").toString() },
+            cacheDao = cacheDao
+        )
+
+        val response = client.check("null-urls-sha", emptyList(), null)
+        assertNotNull(response)
+        assertEquals("suspicious", response?.verdict)
+        assertEquals("Spyware", response?.threatCategory)
+        assertNull(response?.officialCertMatch)
+        assertEquals(emptyList<String>(), response?.flaggedUrls)
+    }
+
+    @Test
     fun check_worksWhenCacheDaoIsNull() = runTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody("""{"verdict": "clean"}"""))
 

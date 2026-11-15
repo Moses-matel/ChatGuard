@@ -41,6 +41,10 @@ class NotificationAnalyzer {
             "paket"
         )
 
+        private val LURE_KEYWORD_REGEXES = LURE_KEYWORDS.map { keyword ->
+            Regex("""\b$keyword\b""", RegexOption.IGNORE_CASE)
+        }
+
         private const val DOUBLE_EXT_PREFIXES =
             "(?:pdf|docx?|xlsx?|pptx?|txt|rtf|jpe?g|png|gif|bmp|webp|mp[34]|wav|mkv|zip|rar|7z|tar|gz)"
 
@@ -139,8 +143,8 @@ class NotificationAnalyzer {
         }
 
         private fun hasLureKeyword(vararg texts: String): Boolean {
-            val combined = texts.joinToString(" ").lowercase()
-            return LURE_KEYWORDS.any { keyword -> combined.contains(keyword) }
+            val normalized = texts.joinToString(" ").replace(Regex("""[^a-zA-Z0-9]"""), " ")
+            return LURE_KEYWORD_REGEXES.any { regex -> regex.containsMatchIn(normalized) }
         }
 
         @JvmOverloads

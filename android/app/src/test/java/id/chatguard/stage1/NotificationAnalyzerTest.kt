@@ -174,22 +174,89 @@ class NotificationAnalyzerTest {
     }
 
     @Test
-    fun `ChatNotificationListener registers and notifies alert listeners`() {
+    fun `regresi_linier pdf does not trigger LURE_KEYWORDS_ID`() {
+        val alert = NotificationAnalyzer.analyze(
+            packageName = "com.whatsapp",
+            title = "Dosen Statistika",
+            text = "regresi_linier.pdf"
+        )
+        assertNull("regresi_linier.pdf should produce null alert (clean file)", alert)
+
+        val cleanAlert = NotificationAnalyzer.analyze(
+            packageName = "com.whatsapp",
+            title = "Dosen Statistika",
+            text = "regresi_linier.pdf",
+            returnCleanAlert = true
+        )
+        assertNotNull(cleanAlert)
+        assertEquals(Verdict.AMAN, cleanAlert!!.verdict)
+        assertFalse(
+            "regresi_linier.pdf must NOT trigger LURE_KEYWORDS_ID",
+            cleanAlert.reasons.contains("LURE_KEYWORDS_ID")
+        )
+
+        // With .apk extension, regresi_linier.apk must be MENCURIGAKAN, not BERBAHAYA
+        val apkAlert = NotificationAnalyzer.analyze(
+            packageName = "com.whatsapp",
+            title = "Dev",
+            text = "regresi_linier.apk"
+        )
+        assertNotNull(apkAlert)
+        assertEquals(Verdict.MENCURIGAKAN, apkAlert!!.verdict)
+        assertFalse(
+            "regresi_linier.apk must NOT trigger LURE_KEYWORDS_ID",
+            apkAlert.reasons.contains("LURE_KEYWORDS_ID")
+        )
+    }
+
+    @Test
+    fun `presiden document does not trigger LURE_KEYWORDS_ID`() {
+        val alert = NotificationAnalyzer.analyze(
+            packageName = "com.whatsapp",
+            title = "Humas",
+            text = "pidato_presiden.pdf"
+        )
+        assertNull(alert)
+    }
+
+    @Test
+    fun `ChatNotificationListener processes notification and dispatches to alert listeners`() {
         val capturedAlerts = mutableListOf<id.chatguard.core.model.NotificationAlert>()
         val listener: (id.chatguard.core.model.NotificationAlert) -> Unit = { capturedAlerts.add(it) }
 
         ChatNotificationListener.addListener(listener)
         try {
-            val alert = NotificationAnalyzer.analyze(
+            val service = ChatNotificationListener()
+
+            // Exercise actual notification processing path in ChatNotificationListener
+            val alert = service.processNotification(
                 packageName = "com.whatsapp",
                 title = "Pak RT",
                 text = "Undangan_Warga.pdf.apk"
             )
             assertNotNull(alert)
-            // Verify static listener registration mechanism
-            listener(alert!!)
             assertEquals(1, capturedAlerts.size)
             assertEquals("Undangan_Warga.pdf.apk", capturedAlerts[0].fileName)
+            assertEquals(Verdict.BERBAHAYA, capturedAlerts[0].verdict)
+
+            // AMAN verdict notifications should not dispatch alerts to listeners
+            service.processNotification(
+                packageName = "com.whatsapp",
+                title = "Alice",
+                text = "laporan.pdf"
+            )
+            assertEquals("AMAN notification must not dispatch alert", 1, capturedAlerts.size)
+
+            // Direct dispatchAlert on AMAN alert should also be suppressed
+            val cleanAlert = id.chatguard.core.model.NotificationAlert(
+                sourcePackage = "com.whatsapp",
+                sender = "Alice",
+                fileName = "clean.pdf",
+                verdict = Verdict.AMAN,
+                reasons = emptyList()
+            )
+            service.dispatchAlert(cleanAlert)
+            assertEquals("Direct AMAN dispatchAlert must not dispatch", 1, capturedAlerts.size)
         } finally {
             ChatNotificationListener.removeListener(listener)
             ChatNotificationListener.clearListeners()

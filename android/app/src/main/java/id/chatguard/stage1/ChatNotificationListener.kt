@@ -30,6 +30,15 @@ class ChatNotificationListener : NotificationListenerService() {
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
 
+        processNotification(packageName, title, text, bigText)
+    }
+
+    internal fun processNotification(
+        packageName: String,
+        title: String,
+        text: String,
+        bigText: String = ""
+    ): NotificationAlert? {
         val messageContent = if (bigText.isNotBlank() && bigText != text) {
             "$text\n$bigText"
         } else {
@@ -40,9 +49,13 @@ class ChatNotificationListener : NotificationListenerService() {
             packageName = packageName,
             title = title,
             text = messageContent
-        ) ?: return
+        ) ?: return null
 
-        // Dispatch alert if not AMAN (pre-download warning for suspicious or dangerous files)
+        dispatchAlert(alert)
+        return alert
+    }
+
+    internal fun dispatchAlert(alert: NotificationAlert) {
         if (alert.verdict != Verdict.AMAN) {
             notifyAlert(alert)
         }

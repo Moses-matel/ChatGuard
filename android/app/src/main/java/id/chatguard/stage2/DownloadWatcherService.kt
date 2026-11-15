@@ -379,27 +379,7 @@ class DownloadWatcherService : Service() {
 
     private fun deleteObservedFile(sourceUri: Uri?, fallbackFile: File) {
         try {
-            if (sourceUri != null) {
-                when (sourceUri.scheme) {
-                    ContentResolver.SCHEME_FILE -> {
-                        sourceUri.path?.let { File(it).delete() }
-                    }
-                    ContentResolver.SCHEME_CONTENT -> {
-                        val deletedByContract = try {
-                            if (DocumentsContract.isDocumentUri(this, sourceUri)) {
-                                DocumentsContract.deleteDocument(contentResolver, sourceUri)
-                            } else {
-                                false
-                            }
-                        } catch (_: Exception) {
-                            false
-                        }
-                        if (!deletedByContract) {
-                            contentResolver.delete(sourceUri, null, null)
-                        }
-                    }
-                }
-            }
+            SafeFileDeleter.delete(this, sourceUri)
             if (fallbackFile.exists()) {
                 fallbackFile.delete()
             }

@@ -1,12 +1,16 @@
 package id.chatguard.stage2
 
 import android.Manifest
+import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
+import java.io.File
 import java.util.Locale
 
 enum class StorageMode {
@@ -127,5 +131,32 @@ class SafSeenTracker(
         }
         seen[docUri] = lastModified
         return true
+    }
+}
+
+object SafeFileDeleter {
+    fun delete(context: Context, uri: Uri?): Boolean {
+        if (uri == null) return false
+        return try {
+            when (uri.scheme) {
+                ContentResolver.SCHEME_FILE -> {
+                    uri.path?.let { File(it).delete() } ?: false
+                }
+                ContentResolver.SCHEME_CONTENT -> {
+                    if (DocumentsContract.isDocumentUri(context, uri)) {
+                        try {
+                            DocumentsContract.deleteDocument(context.contentResolver, uri)
+                        } catch (_: Exception) {
+                            context.contentResolver.delete(uri, null, null) > 0
+                        }
+                    } else {
+                        context.contentResolver.delete(uri, null, null) > 0
+                    }
+                }
+                else -> false
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 }

@@ -1,10 +1,16 @@
 package id.chatguard.stage2
 
+import android.content.ContentResolver
+import android.content.Context
+import android.net.Uri
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class StorageModeResolverTest {
 
@@ -108,5 +114,22 @@ class StorageModeResolverTest {
 
         // doc1 was evicted when doc3 was inserted, so it should be inspectable again
         assertTrue(tracker.shouldInspect("content://tree/doc1", 2000L))
+    }
+
+    @Test
+    fun `safeFileDeleter deletes file scheme uri and handles null or missing files`() {
+        val context = mockk<Context>(relaxed = true)
+        val tempFile = File.createTempFile("chatguard_delete_test", ".apk")
+        assertTrue(tempFile.exists())
+
+        val fileUri = mockk<Uri> {
+            every { scheme } returns ContentResolver.SCHEME_FILE
+            every { path } returns tempFile.absolutePath
+        }
+
+        assertTrue(SafeFileDeleter.delete(context, fileUri))
+        assertFalse(tempFile.exists())
+        assertFalse(SafeFileDeleter.delete(context, fileUri))
+        assertFalse(SafeFileDeleter.delete(context, null))
     }
 }

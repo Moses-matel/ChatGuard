@@ -184,8 +184,8 @@ class ChatScreenAccessibilityService : AccessibilityService() {
     }
 
     companion object {
-        private const val SCAN_THROTTLE_MS = 500L
-        private const val MAX_NODES = 250
+        private const val SCAN_THROTTLE_MS = 750L
+        private const val MAX_NODES = 160
         private const val MAX_SNIPPET_LENGTH = 512
     }
 }

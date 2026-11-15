@@ -325,6 +325,9 @@ class MainActivity : ComponentActivity() {
                         isIndonesian = isId,
                         onReplayWalkthrough = {
                             walkthroughCompletedState = false
+                        },
+                        onOpenSupport = {
+                            openExternalUrl("https://trakteer.id/mosesmatel/tip")
                         }
                     )
                 } else {
@@ -541,6 +544,13 @@ class MainActivity : ComponentActivity() {
     private fun requestPostNotifications() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             postNotificationsLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun openExternalUrl(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: Exception) {
         }
     }
 

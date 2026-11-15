@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +39,7 @@ private data class UpdateNoteItem(
 fun AppInfoAndUpdatesScreen(
     isIndonesian: Boolean,
     onReplayWalkthrough: () -> Unit,
+    onOpenSupport: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val features = if (isIndonesian) {
@@ -110,7 +113,15 @@ fun AppInfoAndUpdatesScreen(
     val updates = if (isIndonesian) {
         listOf(
             UpdateNoteItem(
-                version = "v1.2.0 (Terbaru)",
+                version = "v1.2.1 (Terbaru)",
+                date = "15 Nov 2026",
+                highlights = listOf(
+                    "Bagian Dukungan Pengembang (Trakteer) di dalam aplikasi.",
+                    "Optimasi ukuran APK (R8 minify & resource shrinking) dan pemindaian layar yang lebih hemat baterai."
+                )
+            ),
+            UpdateNoteItem(
+                version = "v1.2.0",
                 date = "15 Nov 2026",
                 highlights = listOf(
                     "Tombol ON/OFF Mode Aman di Beranda untuk mengaktifkan/menjeda perlindungan.",
@@ -272,6 +283,43 @@ fun AppInfoAndUpdatesScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(if (isIndonesian) "Putar Ulang Panduan Awal (Walkthrough)" else "Replay Walkthrough Guide")
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF1F2))
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = if (isIndonesian) "Dukung Pengembangan ChatGuard" else "Support ChatGuard Development",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF9F1239)
+                )
+                Text(
+                    text = if (isIndonesian) {
+                        "ChatGuard gratis tanpa iklan. Jika aplikasi ini membantu menjaga keamanan Anda dan keluarga, Anda dapat mendukung pengembang lewat Trakteer."
+                    } else {
+                        "ChatGuard is free and ad-free. If this app helps keep you safe, you can support the developer via Trakteer."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF4C0519)
+                )
+                Button(
+                    onClick = onOpenSupport,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFBE1E2D)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (isIndonesian) "Dukung di Trakteer" else "Support on Trakteer",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
         }
     }
 }

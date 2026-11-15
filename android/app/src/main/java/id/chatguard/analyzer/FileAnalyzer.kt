@@ -94,17 +94,25 @@ internal object AnalyzerSupport {
     private val RAW_IP_URL_REGEX = Regex("""^https?://(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:/|$)""", RegexOption.IGNORE_CASE)
 
     fun sha256Hex(file: File): String {
-        if (!file.exists() || !file.isFile) return ""
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(8192)
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                digest.update(buffer, 0, read)
+        return sha256HexOrNull(file) ?: ""
+    }
+
+    fun sha256HexOrNull(file: File): String? {
+        if (!file.exists() || !file.isFile) return null
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                }
             }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            null
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     fun sha256Hex(bytes: ByteArray): String {

@@ -9,9 +9,10 @@ import java.util.zip.ZipFile
 class ArchiveAnalyzer : FileAnalyzer {
 
     override fun inspect(file: File): FileInspectionResult {
-        val sha256 = AnalyzerSupport.sha256Hex(file)
-        if (!file.exists() || !file.isFile || file.length() == 0L) {
-            return AnalyzerSupport.parseFailed(file, FileType.ARCHIVE, sha256, "Archive file missing or empty")
+        val sha256 = AnalyzerSupport.sha256HexOrNull(file)
+            ?: return AnalyzerSupport.parseFailed(file, FileType.ARCHIVE, "", "Archive file missing or unreadable")
+        if (file.length() == 0L) {
+            return AnalyzerSupport.parseFailed(file, FileType.ARCHIVE, sha256, "Archive file is empty")
         }
 
         val magic = ByteArray(8)
@@ -43,7 +44,6 @@ class ArchiveAnalyzer : FileAnalyzer {
     private fun inspectZip(file: File, sha256: String): FileInspectionResult {
         val signals = mutableListOf<Signal>()
         var hasTraversal = false
-        var hasZipBomb = false
         var hasApk = false
         var hasExecutable = false
         var hasDoubleExt = false
@@ -65,16 +65,19 @@ class ArchiveAnalyzer : FileAnalyzer {
                     }
 
                     val size = entry.size
-                    if (size > 0) {
-                        totalUncompressed += size
-                    }
-                    if (!hasZipBomb && (size > MAX_UNCOMPRESSED_BYTES || totalUncompressed > MAX_UNCOMPRESSED_BYTES || entryCount > MAX_ENTRY_COUNT)) {
-                        hasZipBomb = true
+                    if (size > MAX_UNCOMPRESSED_BYTES ||
+                        (size > 0 && size > MAX_UNCOMPRESSED_BYTES - totalUncompressed) ||
+                        entryCount > MAX_ENTRY_COUNT
+                    ) {
                         signals += Signal(
                             "ARCHIVE_ZIP_BOMB",
                             50,
-                            "Archive exceeds safe limits (entries=$entryCount, totalBytes=$totalUncompressed)"
+                            "Archive exceeds safe limits (entries=$entryCount, totalBytes=$totalUncompressed, entrySize=$size)"
                         )
+                        break
+                    }
+                    if (size > 0) {
+                        totalUncompressed += size
                     }
 
                     val baseName = normalized.substringAfterLast('/')

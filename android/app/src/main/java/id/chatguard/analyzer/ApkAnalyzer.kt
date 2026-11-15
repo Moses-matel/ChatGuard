@@ -16,9 +16,10 @@ import java.util.zip.ZipFile
 class ApkAnalyzer(private val context: Context? = null) : FileAnalyzer {
 
     override fun inspect(file: File): FileInspectionResult {
-        val sha256 = AnalyzerSupport.sha256Hex(file)
-        if (!file.exists() || !file.isFile || file.length() < 22) {
-            return AnalyzerSupport.parseFailed(file, FileType.APK, sha256, "APK file missing or truncated")
+        val sha256 = AnalyzerSupport.sha256HexOrNull(file)
+            ?: return AnalyzerSupport.parseFailed(file, FileType.APK, "", "APK file missing or unreadable")
+        if (file.length() < 22) {
+            return AnalyzerSupport.parseFailed(file, FileType.APK, sha256, "APK file truncated")
         }
 
         var packageName: String?
@@ -179,7 +180,7 @@ class ApkAnalyzer(private val context: Context? = null) : FileAnalyzer {
                 val cf = CertificateFactory.getInstance("X.509")
                 for (i in 0 until block.size - 4) {
                     if (block[i] == 0x30.toByte() && block[i + 1] == 0x82.toByte()) {
-                        val certLen = ((block[i + 2].toInt() and 0xFF) shl 8) or (block[i + 3].toInt() and 0xFF) + 4
+                        val certLen = (((block[i + 2].toInt() and 0xFF) shl 8) or (block[i + 3].toInt() and 0xFF)) + 4
                         if (certLen in 200..16_384 && i + certLen <= block.size) {
                             try {
                                 val cert = cf.generateCertificate(ByteArrayInputStream(block, i, certLen)) as? X509Certificate

@@ -7,9 +7,10 @@ import java.io.File
 class PdfAnalyzer : FileAnalyzer {
 
     override fun inspect(file: File): FileInspectionResult {
-        val sha256 = AnalyzerSupport.sha256Hex(file)
-        if (!file.exists() || !file.isFile || file.length() < 5) {
-            return AnalyzerSupport.parseFailed(file, FileType.PDF, sha256, "PDF file missing or too small")
+        val sha256 = AnalyzerSupport.sha256HexOrNull(file)
+            ?: return AnalyzerSupport.parseFailed(file, FileType.PDF, "", "PDF file missing or unreadable")
+        if (file.length() < 5) {
+            return AnalyzerSupport.parseFailed(file, FileType.PDF, sha256, "PDF file too small")
         }
 
         val header = ByteArray(1024)

@@ -12,9 +12,10 @@ import javax.xml.parsers.DocumentBuilderFactory
 class OfficeAnalyzer : FileAnalyzer {
 
     override fun inspect(file: File): FileInspectionResult {
-        val sha256 = AnalyzerSupport.sha256Hex(file)
-        if (!file.exists() || !file.isFile || file.length() == 0L) {
-            return AnalyzerSupport.parseFailed(file, FileType.OFFICE, sha256, "Office file missing or empty")
+        val sha256 = AnalyzerSupport.sha256HexOrNull(file)
+            ?: return AnalyzerSupport.parseFailed(file, FileType.OFFICE, "", "Office file missing or unreadable")
+        if (file.length() == 0L) {
+            return AnalyzerSupport.parseFailed(file, FileType.OFFICE, sha256, "Office file is empty")
         }
 
         val signals = mutableListOf<Signal>()

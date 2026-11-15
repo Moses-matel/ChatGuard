@@ -252,6 +252,47 @@ class FileAnalyzersTest {
         assertFalse(result.parseFailed)
     }
 
+    @Test
+    fun `ApkAnalyzer extracts certSha256 from v2 signing block with cert low byte ge 0xFC`() {
+        val certBytes = buildMinimalX509CertWithBodyLen(0x01FC) // 508 + 4 = 512 bytes, low byte = 0xFC
+        assertEquals(0xFC.toByte(), certBytes[3])
+
+        val rawZip = ByteArrayOutputStream()
+        ZipOutputStream(rawZip).use { zos ->
+            zos.putNextEntry(ZipEntry("AndroidManifest.xml"))
+            zos.write(buildSyntheticAxml("com.test.v2sig", emptyList()))
+            zos.closeEntry()
+        }
+        val zipWithV2 = injectApkSigBlock(rawZip.toByteArray(), certBytes)
+        val apkFile = tempFolder.newFile("v2sig.apk")
+        apkFile.writeBytes(zipWithV2)
+
+        val result = ApkAnalyzer().inspect(apkFile)
+
+        assertFalse(result.parseFailed)
+        assertEquals("com.test.v2sig", result.packageName)
+        val expectedCertSha = MessageDigest.getInstance("SHA-256")
+            .digest(certBytes)
+            .joinToString("") { "%02x".format(it) }
+        assertEquals(expectedCertSha, result.certSha256)
+    }
+
+    @Test
+    fun `analyzers return parseFailed without throwing on missing or directory files`() {
+        val missing = File(tempFolder.root, "does_not_exist.apk")
+        val dir = tempFolder.newFolder("not_a_file")
+
+        for (analyzer in listOf(ApkAnalyzer(), PdfAnalyzer(), OfficeAnalyzer(), ArchiveAnalyzer())) {
+            val resMissing = analyzer.inspect(missing)
+            assertTrue(resMissing.parseFailed)
+            assertTrue(resMissing.signals.any { it.code == "PARSE_FAILED" })
+
+            val resDir = analyzer.inspect(dir)
+            assertTrue(resDir.parseFailed)
+            assertTrue(resDir.signals.any { it.code == "PARSE_FAILED" })
+        }
+    }
+
     private fun sha256Hex(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
@@ -399,5 +440,88 @@ class FileAnalyzersTest {
         bb.putInt(ns)
         bb.putInt(name)
         return bb.array()
+    }
+
+    private fun derTlv(tag: Int, content: ByteArray): ByteArray {
+        val len = content.size
+        val lenBytes = when {
+            len < 128 -> byteArrayOf(len.toByte())
+            len < 256 -> byteArrayOf(0x81.toByte(), len.toByte())
+            else -> byteArrayOf(0x82.toByte(), (len shr 8).toByte(), (len and 0xFF).toByte())
+        }
+        return byteArrayOf(tag.toByte()) + lenBytes + content
+    }
+
+    private fun buildMinimalX509CertWithBodyLen(targetBodyLen: Int): ByteArray {
+        // sha256WithRSAEncryption OID: 1.2.840.113549.1.1.11
+        val sigAlgOid = derTlv(0x06, byteArrayOf(0x2A, 0x86.toByte(), 0x48, 0x86.toByte(), 0xF7.toByte(), 0x0D, 0x01, 0x01, 0x0B))
+        val sigAlg = derTlv(0x30, sigAlgOid + derTlv(0x05, byteArrayOf()))
+        // rsaEncryption OID: 1.2.840.113549.1.1.1
+        val rsaOid = derTlv(0x06, byteArrayOf(0x2A, 0x86.toByte(), 0x48, 0x86.toByte(), 0xF7.toByte(), 0x0D, 0x01, 0x01, 0x01))
+        val rsaAlg = derTlv(0x30, rsaOid + derTlv(0x05, byteArrayOf()))
+
+        // Minimal Name: SEQUENCE { SET { SEQUENCE { OID(CN=2.5.4.3), UTF8String("T") } } }
+        val cnOid = derTlv(0x06, byteArrayOf(0x55, 0x04, 0x03))
+        val cnAttr = derTlv(0x30, cnOid + derTlv(0x0C, "T".toByteArray()))
+        val name = derTlv(0x30, derTlv(0x31, cnAttr))
+
+        val utc1 = derTlv(0x17, "240101000000Z".toByteArray(Charsets.US_ASCII))
+        val utc2 = derTlv(0x17, "340101000000Z".toByteArray(Charsets.US_ASCII))
+        val validity = derTlv(0x30, utc1 + utc2)
+
+        // Minimal RSA SubjectPublicKeyInfo (65-byte positive modulus + exponent 65537)
+        val mod = ByteArray(65).apply { this[0] = 0x01; this[64] = 0x01 }
+        val rsaPubSeq = derTlv(0x30, derTlv(0x02, mod) + derTlv(0x02, byteArrayOf(0x01, 0x00, 0x01)))
+        val spki = derTlv(0x30, rsaAlg + derTlv(0x03, byteArrayOf(0x00) + rsaPubSeq))
+
+        val tbs = derTlv(
+            0x30,
+            derTlv(0x02, byteArrayOf(0x01)) + // serialNumber = 1
+                sigAlg +
+                name +
+                validity +
+                name +
+                spki
+        )
+
+        val fixedLen = tbs.size + sigAlg.size
+        // signatureValue BIT STRING header for length >= 256 is 4 bytes (0x03 0x82 hi lo) + 1 unused-bits byte
+        val sigPayloadLen = targetBodyLen - fixedLen - 4
+        require(sigPayloadLen >= 256) { "Adjust targetBodyLen; sigPayloadLen=$sigPayloadLen" }
+        val sigValue = derTlv(0x03, ByteArray(sigPayloadLen))
+        return derTlv(0x30, tbs + sigAlg + sigValue)
+    }
+
+    private fun injectApkSigBlock(zipBytes: ByteArray, certBytes: ByteArray): ByteArray {
+        // Locate End of Central Directory (0x06054b50)
+        var eocdOffset = -1
+        for (i in zipBytes.size - 22 downTo 0) {
+            if (zipBytes[i] == 0x50.toByte() && zipBytes[i + 1] == 0x4B.toByte() &&
+                zipBytes[i + 2] == 0x05.toByte() && zipBytes[i + 3] == 0x06.toByte()
+            ) {
+                eocdOffset = i
+                break
+            }
+        }
+        require(eocdOffset >= 0)
+        val cdOffset = ByteBuffer.wrap(zipBytes, eocdOffset + 16, 4)
+            .order(ByteOrder.LITTLE_ENDIAN).int
+
+        // Build APK Signing Block: [size8][certBytes][size8]["APK Sig Block 42"]
+        val blockSize = certBytes.size.toLong() + 24L
+        val sigBlock = ByteBuffer.allocate(8 + blockSize.toInt()).order(ByteOrder.LITTLE_ENDIAN)
+        sigBlock.putLong(blockSize)
+        sigBlock.put(certBytes)
+        sigBlock.putLong(blockSize)
+        sigBlock.put("APK Sig Block 42".toByteArray(Charsets.US_ASCII))
+        val sigBytes = sigBlock.array()
+
+        val modifiedTail = zipBytes.copyOfRange(cdOffset, zipBytes.size)
+        val eocdInTail = eocdOffset - cdOffset
+        ByteBuffer.wrap(modifiedTail, eocdInTail + 16, 4)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(cdOffset + sigBytes.size)
+
+        return zipBytes.copyOfRange(0, cdOffset) + sigBytes + modifiedTail
     }
 }

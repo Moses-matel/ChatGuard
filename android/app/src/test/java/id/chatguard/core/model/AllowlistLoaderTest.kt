@@ -57,10 +57,10 @@ class AllowlistLoaderTest {
         val allowlist = assetFile.inputStream().use { OfficialCertAllowlist.loadFromStream(it) }
         assertTrue("Allowlist must contain BCA", allowlist.containsKey("com.bca"))
         assertTrue("Allowlist must contain BRImo", allowlist.containsKey("id.co.bri.brimo"))
-        assertTrue("Allowlist must contain Mandiri", allowlist.containsKey("src.com.mandiri.livin"))
+        assertTrue("Allowlist must contain Mandiri", allowlist.containsKey("id.bmri.livin"))
         assertTrue("Allowlist must contain DANA", allowlist.containsKey("id.dana"))
         assertTrue("Allowlist must contain Gojek", allowlist.containsKey("com.gojek.app"))
-        assertTrue("Allowlist must contain J&T", allowlist.containsKey("com.jet.express"))
+        assertTrue("Allowlist must contain J&T", allowlist.containsKey("com.msd.JTClient"))
         assertTrue("Allowlist must contain SatuSehat", allowlist.containsKey("id.kemkes.satusehat"))
         assertTrue("Allowlist has at least 20 entries", allowlist.size >= 20)
         allowlist.values.forEach { entry ->

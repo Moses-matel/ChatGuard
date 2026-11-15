@@ -18,7 +18,7 @@
     "category": "BANK"
   },
   {
-    "packageName": "src.com.mandiri.livin",
+    "packageName": "id.bmri.livin",
     "appName": "Livin' by Mandiri",
     "certSha256": "8A127FBC2D3E4F5A6B7C8D9E0F1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A",
     "category": "BANK"
@@ -84,7 +84,7 @@
     "category": "TELCO"
   },
   {
-    "packageName": "com.jet.express",
+    "packageName": "com.msd.JTClient",
     "appName": "J&T Express",
     "certSha256": "293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F70819",
     "category": "COURIER"

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ChatGuard</string>
+    <string name="verdict_aman">Safe</string>
+    <string name="verdict_mencurigakan">Suspicious</string>
+    <string name="verdict_berbahaya">Dangerous</string>
+    <string name="title_berbahaya_apk">Dangerous: This app may steal your data</string>
+    <string name="title_berbahaya_file">Dangerous: Do not open this file</string>
+    <string name="title_mencurigakan">Suspicious: Extra caution needed</string>
+    <string name="title_aman">Safe: No signs of danger found</string>
+    <string name="impact_berbahaya_otp">If installed, attackers may read your bank or e-wallet OTP codes and take over your accounts. Delete this file and do not install it.</string>
+    <string name="impact_berbahaya_general">Opening this file may put your personal data, financial accounts, or device at risk. Delete it right away.</string>
+    <string name="impact_mencurigakan">This file has unusual signs or could not be fully checked. Verify directly with the official sender before opening.</string>
+    <string name="impact_aman">You can use this file normally, though always stay alert if asked for personal information.</string>
+</resources>

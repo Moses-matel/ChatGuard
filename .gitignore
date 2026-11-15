@@ -1,0 +1,7 @@
+.superpowers/
+.gradle/
+local.properties
+**/build/
+.idea/
+*.iml
+

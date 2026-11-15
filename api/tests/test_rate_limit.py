@@ -37,6 +37,9 @@ async def test_rate_limiter_returns_429_when_exceeded():
         assert res.status_code == 429
         data = res.json()
         assert "detail" in data or "error" in data
+        assert "retry-after" in res.headers
+        retry_after = int(res.headers["retry-after"])
+        assert 1 <= retry_after <= 10
 
 
 @pytest.mark.asyncio
@@ -65,6 +68,82 @@ async def test_rate_limiter_per_ip_isolation():
     async with AsyncClient(transport=ip2_transport, base_url="http://test") as client2:
         res_ip2 = await client2.get("/test")
         assert res_ip2.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_ignores_x_forwarded_for_when_untrusted():
+    from app.rate_limit import RateLimiterMiddleware
+
+    app = FastAPI()
+    # Default trust_proxy_headers=False
+    app.add_middleware(
+        RateLimiterMiddleware, requests_limit=2, window_seconds=10, trust_proxy_headers=False
+    )
+
+    @app.get("/test")
+    async def endpoint():
+        return {"ok": True}
+
+    transport = ASGITransport(app=app, client=("192.168.1.50", 50000))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Spoofing X-Forwarded-For should NOT bypass the limit
+        res1 = await client.get("/test", headers={"x-forwarded-for": "1.1.1.1"})
+        assert res1.status_code == 200
+        res2 = await client.get("/test", headers={"x-forwarded-for": "2.2.2.2"})
+        assert res2.status_code == 200
+        res3 = await client.get("/test", headers={"x-forwarded-for": "3.3.3.3"})
+        # Must be 429 because physical IP 192.168.1.50 exceeded limit
+        assert res3.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_honors_x_forwarded_for_when_trusted():
+    from app.rate_limit import RateLimiterMiddleware
+
+    app = FastAPI()
+    app.add_middleware(
+        RateLimiterMiddleware, requests_limit=2, window_seconds=10, trust_proxy_headers=True
+    )
+
+    @app.get("/test")
+    async def endpoint():
+        return {"ok": True}
+
+    # Same physical proxy client
+    transport = ASGITransport(app=app, client=("10.0.0.1", 50000))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Client 1.1.1.1 uses 2 requests
+        await client.get("/test", headers={"x-forwarded-for": "1.1.1.1"})
+        await client.get("/test", headers={"x-forwarded-for": "1.1.1.1"})
+        blocked = await client.get("/test", headers={"x-forwarded-for": "1.1.1.1"})
+        assert blocked.status_code == 429
+
+        # Client 2.2.2.2 is not blocked
+        allowed = await client.get("/test", headers={"x-forwarded-for": "2.2.2.2"})
+        assert allowed.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_evicts_idle_ips_and_caps_entries():
+    from app.rate_limit import RateLimiterMiddleware
+
+    middleware = RateLimiterMiddleware(
+        FastAPI(), requests_limit=5, window_seconds=0.1, max_tracked_ips=2
+    )
+
+    # Directly manipulate history to test pruning and eviction
+    now = time.monotonic()
+    middleware._history["old_ip"] = [now - 1.0]  # Expired
+    middleware._history["ip1"] = [now]
+    middleware._history["ip2"] = [now]
+
+    # Prune and bound-check
+    middleware._cleanup(now)
+
+    # "old_ip" should have been removed because it was expired
+    assert "old_ip" not in middleware._history
+    # Total tracked IPs must not exceed max_tracked_ips (2)
+    assert len(middleware._history) <= 2
 
 
 @pytest.mark.asyncio

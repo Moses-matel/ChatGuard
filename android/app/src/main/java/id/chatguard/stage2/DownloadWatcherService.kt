@@ -1,0 +1,437 @@
+package id.chatguard.stage2
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.ContentResolver
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.database.ContentObserver
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.os.FileObserver
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.provider.DocumentsContract
+import android.provider.MediaStore
+import android.provider.OpenableColumns
+import androidx.core.app.NotificationCompat
+import id.chatguard.analyzer.FileAnalyzerDispatcher
+import id.chatguard.core.model.AnalysisReport
+import id.chatguard.core.model.OfficialAppEntry
+import id.chatguard.core.model.OfficialCertAllowlist
+import id.chatguard.core.model.Verdict
+import id.chatguard.data.ChatGuardDatabase
+import id.chatguard.network.ReputationClient
+import id.chatguard.scoring.PlainLanguageExplainer
+import id.chatguard.scoring.RiskScorer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileOutputStream
+import java.util.UUID
+
+class DownloadWatcherService : Service() {
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val debouncer = FileEventDebouncer()
+    private val fileObservers = mutableListOf<FileObserver>()
+    private var mediaStoreObserver: ContentObserver? = null
+
+    @Volatile
+    private var activeMode: StorageMode? = null
+
+    @Volatile
+    private var allowlist: Map<String, OfficialAppEntry> = emptyMap()
+
+    private val reputationClient: ReputationClient by lazy {
+        val dao = ChatGuardDatabase.getInstance(applicationContext).reputationCacheDao()
+        ReputationClient(
+            baseUrlProvider = { DEFAULT_REPUTATION_BASE_URL },
+            cacheDao = dao
+        )
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        ensureNotificationChannels()
+        serviceScope.launch {
+            allowlist = OfficialCertAllowlist.load(applicationContext)
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startAsForeground()
+        val mode = StorageModeResolver.resolveForContext(this)
+        if (mode != activeMode) {
+            stopWatchers()
+            activeMode = mode
+            when (mode) {
+                StorageMode.ALL_FILES_WATCHER -> startAllFilesWatchers()
+                StorageMode.PLAY_SAFE_MEDIASTORE_SAF -> startPlaySafeWatchers()
+            }
+        }
+        return START_STICKY
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        stopWatchers()
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
+    private fun startAsForeground() {
+        val notification = NotificationCompat.Builder(this, CHANNEL_WATCHER)
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle("ChatGuard Protection Active")
+            .setContentText("Monitoring downloaded files for threats")
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID_FOREGROUND,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(NOTIFICATION_ID_FOREGROUND, notification)
+        }
+    }
+
+    private fun startAllFilesWatchers() {
+        val root = Environment.getExternalStorageDirectory() ?: return
+        val candidateDirs = listOf(
+            File(root, "Download"),
+            File(root, "WhatsApp/Media/WhatsApp Documents"),
+            File(root, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Documents"),
+            File(root, "Telegram/Telegram Documents"),
+            File(root, "Android/media/org.telegram.messenger/Telegram/Telegram Documents")
+        )
+
+        for (dir in candidateDirs) {
+            if (!dir.exists() || !dir.isDirectory || !dir.canRead()) continue
+            val observer = createDirectoryObserver(dir)
+            try {
+                observer.startWatching()
+                fileObservers.add(observer)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun createDirectoryObserver(dir: File): FileObserver {
+        val mask = FileObserver.CLOSE_WRITE or FileObserver.MOVED_TO
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            object : FileObserver(dir, mask) {
+                override fun onEvent(event: Int, path: String?) {
+                    handleObservedFile(dir, path)
+                }
+            }
+        } else {
+            object : FileObserver(dir.absolutePath, mask) {
+                override fun onEvent(event: Int, path: String?) {
+                    handleObservedFile(dir, path)
+                }
+            }
+        }
+    }
+
+    private fun handleObservedFile(dir: File, relativePath: String?) {
+        val name = relativePath ?: return
+        if (DownloadEventFilter.isTemporaryOrIgnoredFile(name)) return
+        val target = File(dir, name)
+        val key = target.absolutePath
+        if (!debouncer.shouldProcess(key)) return
+
+        serviceScope.launch {
+            val stable = FileStabilityChecker.waitForStableSize(
+                sizeProvider = { if (target.exists() && target.isFile) target.length() else 0L }
+            )
+            if (!stable) return@launch
+            inspectFileAndNotify(target, target.name)
+        }
+    }
+
+    private fun startPlaySafeWatchers() {
+        val observedUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        } else {
+            MediaStore.Files.getContentUri("external")
+        }
+
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                super.onChange(selfChange, uri)
+                serviceScope.launch {
+                    handleMediaStoreChange(uri ?: observedUri)
+                    scanPersistedSafTrees()
+                }
+            }
+        }
+
+        try {
+            contentResolver.registerContentObserver(observedUri, true, observer)
+            mediaStoreObserver = observer
+        } catch (_: Exception) {
+        }
+
+        serviceScope.launch {
+            scanPersistedSafTrees()
+        }
+    }
+
+    private suspend fun handleMediaStoreChange(uri: Uri) {
+        val projection = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.SIZE
+        )
+        val sortOrder = "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
+        try {
+            contentResolver.query(uri, projection, null, null, sortOrder)?.use { cursor ->
+                if (!cursor.moveToFirst()) return
+                val idIndex = cursor.getColumnIndex(MediaStore.MediaColumns._ID)
+                val nameIndex = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                val id = if (idIndex >= 0) cursor.getLong(idIndex) else -1L
+                val displayName = if (nameIndex >= 0) cursor.getString(nameIndex).orEmpty() else ""
+
+                if (DownloadEventFilter.isTemporaryOrIgnoredFile(displayName)) return
+
+                val itemUri = if (id >= 0 && uri == MediaStore.Downloads.EXTERNAL_CONTENT_URI) {
+                    Uri.withAppendedPath(uri, id.toString())
+                } else {
+                    uri
+                }
+
+                if (!debouncer.shouldProcess(itemUri.toString())) return
+                inspectContentUri(itemUri, displayName.ifBlank { "download_item" })
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private suspend fun scanPersistedSafTrees() {
+        val persisted = try {
+            contentResolver.persistedUriPermissions
+        } catch (_: Exception) {
+            emptyList()
+        }
+        for (perm in persisted) {
+            if (!perm.isReadPermission) continue
+            val treeUri = perm.uri
+            try {
+                val docId = DocumentsContract.getTreeDocumentId(treeUri)
+                val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)
+                val projection = arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                )
+                contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+                    val idIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                    val nameIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    val mimeIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                    while (cursor.moveToNext()) {
+                        val childId = if (idIdx >= 0) cursor.getString(idIdx) else continue
+                        val name = if (nameIdx >= 0) cursor.getString(nameIdx).orEmpty() else continue
+                        val mime = if (mimeIdx >= 0) cursor.getString(mimeIdx).orEmpty() else ""
+                        if (mime == DocumentsContract.Document.MIME_TYPE_DIR) continue
+                        if (DownloadEventFilter.isTemporaryOrIgnoredFile(name)) continue
+
+                        val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childId)
+                        if (!debouncer.shouldProcess(docUri.toString())) continue
+                        inspectContentUri(docUri, name)
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private suspend fun inspectContentUri(uri: Uri, fallbackName: String) {
+        val displayName = resolveDisplayName(contentResolver, uri) ?: fallbackName
+        if (DownloadEventFilter.isTemporaryOrIgnoredFile(displayName)) return
+
+        val tempFile = createTempCopyFile(cacheDir, displayName)
+        try {
+            val copied = copyUriToTempFile(contentResolver, uri, tempFile, MAX_INSPECT_BYTES)
+            if (!copied) return
+            inspectFileAndNotify(tempFile, displayName, sourceUri = uri)
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    private suspend fun inspectFileAndNotify(
+        file: File,
+        displayName: String,
+        sourceUri: Uri? = null
+    ) {
+        val currentAllowlist = allowlist.ifEmpty {
+            OfficialCertAllowlist.load(applicationContext).also { allowlist = it }
+        }
+        val rawInspection = FileAnalyzerDispatcher.inspect(file)
+        val inspection = if (rawInspection.fileName != displayName) {
+            rawInspection.copy(fileName = displayName)
+        } else {
+            rawInspection
+        }
+
+        val reputation = reputationClient.check(
+            sha256 = inspection.sha256,
+            urls = inspection.extractedUrls,
+            certSha256 = inspection.certSha256
+        )
+
+        val report = RiskScorer.evaluate(
+            inspection = inspection,
+            reputation = reputation,
+            allowlist = currentAllowlist,
+            fromChat = true
+        )
+
+        if (report.verdict != Verdict.AMAN) {
+            postThreatNotification(report, sourceUri)
+        }
+    }
+
+    private fun postThreatNotification(report: AnalysisReport, sourceUri: Uri?) {
+        val explained = PlainLanguageExplainer.explain(report)
+        val inspectIntent = Intent(this, SafeInspectActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            if (sourceUri != null) {
+                data = sourceUri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            report.sha256.hashCode(),
+            inspectIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ALERTS)
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle(explained.title)
+            .setContentText(explained.whatInside)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("${explained.whatInside}\n${explained.impact}"))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        manager?.notify(report.sha256.hashCode(), notification)
+    }
+
+    private fun stopWatchers() {
+        for (observer in fileObservers) {
+            try {
+                observer.stopWatching()
+            } catch (_: Exception) {
+            }
+        }
+        fileObservers.clear()
+
+        mediaStoreObserver?.let {
+            try {
+                contentResolver.unregisterContentObserver(it)
+            } catch (_: Exception) {
+            }
+        }
+        mediaStoreObserver = null
+    }
+
+    private fun ensureNotificationChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+
+        val watcherChannel = NotificationChannel(
+            CHANNEL_WATCHER,
+            "Download Protection",
+            NotificationManager.IMPORTANCE_LOW
+        )
+        val alertChannel = NotificationChannel(
+            CHANNEL_ALERTS,
+            "Threat Alerts",
+            NotificationManager.IMPORTANCE_HIGH
+        )
+        manager.createNotificationChannel(watcherChannel)
+        manager.createNotificationChannel(alertChannel)
+    }
+
+    companion object {
+        const val CHANNEL_WATCHER = "chatguard_watcher"
+        const val CHANNEL_ALERTS = "chatguard_alerts"
+        const val NOTIFICATION_ID_FOREGROUND = 2001
+        const val MAX_INSPECT_BYTES = 100L * 1024L * 1024L // 100 MB
+        private const val DEFAULT_REPUTATION_BASE_URL = "https://api.chatguard.id"
+
+        internal fun resolveDisplayName(resolver: ContentResolver, uri: Uri): String? {
+            if (uri.scheme == ContentResolver.SCHEME_FILE) {
+                return uri.lastPathSegment
+            }
+            return try {
+                resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) cursor.getString(idx) else null
+                    } else {
+                        null
+                    }
+                }
+            } catch (_: Exception) {
+                null
+            } ?: uri.lastPathSegment
+        }
+
+        internal fun createTempCopyFile(cacheDir: File, displayName: String): File {
+            val sanitized = displayName.replace(Regex("""[^A-Za-z0-9._-]"""), "_").take(64)
+                .ifBlank { "inspect_target" }
+            return File(cacheDir, "safe_inspect_${UUID.randomUUID()}_$sanitized")
+        }
+
+        internal fun copyUriToTempFile(
+            resolver: ContentResolver,
+            uri: Uri,
+            destFile: File,
+            maxBytes: Long = MAX_INSPECT_BYTES
+        ): Boolean {
+            return try {
+                resolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        val buffer = ByteArray(8192)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            total += read
+                            if (total > maxBytes) {
+                                return false
+                            }
+                            output.write(buffer, 0, read)
+                        }
+                    }
+                } ?: return false
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+}

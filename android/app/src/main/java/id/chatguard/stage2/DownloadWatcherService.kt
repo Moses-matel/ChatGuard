@@ -43,6 +43,7 @@ class DownloadWatcherService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val debouncer = FileEventDebouncer()
+    private val safSeenTracker = SafSeenTracker()
     private val fileObservers = mutableListOf<FileObserver>()
     private var mediaStoreObserver: ContentObserver? = null
 
@@ -161,7 +162,7 @@ class DownloadWatcherService : Service() {
                 sizeProvider = { if (target.exists() && target.isFile) target.length() else 0L }
             )
             if (!stable) return@launch
-            inspectFileAndNotify(target, target.name)
+            inspectFileAndNotify(target, target.name, sourceUri = Uri.fromFile(target))
         }
     }
 
@@ -194,32 +195,71 @@ class DownloadWatcherService : Service() {
     }
 
     private suspend fun handleMediaStoreChange(uri: Uri) {
-        val projection = arrayOf(
-            MediaStore.MediaColumns._ID,
-            MediaStore.MediaColumns.DISPLAY_NAME,
-            MediaStore.MediaColumns.SIZE
-        )
+        val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            arrayOf(
+                MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.SIZE,
+                MediaStore.MediaColumns.IS_PENDING
+            )
+        } else {
+            arrayOf(
+                MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.SIZE
+            )
+        }
         val sortOrder = "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
         try {
+            var itemUri: Uri? = null
+            var displayName = ""
             contentResolver.query(uri, projection, null, null, sortOrder)?.use { cursor ->
                 if (!cursor.moveToFirst()) return
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val pendingIdx = cursor.getColumnIndex(MediaStore.MediaColumns.IS_PENDING)
+                    if (pendingIdx >= 0 && cursor.getInt(pendingIdx) == 1) {
+                        return
+                    }
+                }
                 val idIndex = cursor.getColumnIndex(MediaStore.MediaColumns._ID)
                 val nameIndex = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
                 val id = if (idIndex >= 0) cursor.getLong(idIndex) else -1L
-                val displayName = if (nameIndex >= 0) cursor.getString(nameIndex).orEmpty() else ""
+                displayName = if (nameIndex >= 0) cursor.getString(nameIndex).orEmpty() else ""
 
                 if (DownloadEventFilter.isTemporaryOrIgnoredFile(displayName)) return
 
-                val itemUri = if (id >= 0 && uri == MediaStore.Downloads.EXTERNAL_CONTENT_URI) {
+                itemUri = if (id >= 0 && uri == MediaStore.Downloads.EXTERNAL_CONTENT_URI) {
                     Uri.withAppendedPath(uri, id.toString())
                 } else {
                     uri
                 }
-
-                if (!debouncer.shouldProcess(itemUri.toString())) return
-                inspectContentUri(itemUri, displayName.ifBlank { "download_item" })
             }
+
+            val resolvedUri = itemUri ?: return
+            if (!debouncer.shouldProcess(resolvedUri.toString())) return
+
+            val stable = FileStabilityChecker.waitForStableSize(
+                sizeProvider = { queryContentSize(resolvedUri) }
+            )
+            if (!stable) return
+
+            inspectContentUri(resolvedUri, displayName.ifBlank { "download_item" })
         } catch (_: Exception) {
+        }
+    }
+
+    private fun queryContentSize(uri: Uri): Long {
+        return try {
+            contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.SIZE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val sizeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                    if (sizeIdx >= 0) cursor.getLong(sizeIdx) else 0L
+                } else {
+                    0L
+                }
+            } ?: 0L
+        } catch (_: Exception) {
+            0L
         }
     }
 
@@ -238,12 +278,14 @@ class DownloadWatcherService : Service() {
                 val projection = arrayOf(
                     DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                     DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED
                 )
                 contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
                     val idIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
                     val nameIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                     val mimeIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                    val modIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
                     while (cursor.moveToNext()) {
                         val childId = if (idIdx >= 0) cursor.getString(idIdx) else continue
                         val name = if (nameIdx >= 0) cursor.getString(nameIdx).orEmpty() else continue
@@ -251,7 +293,9 @@ class DownloadWatcherService : Service() {
                         if (mime == DocumentsContract.Document.MIME_TYPE_DIR) continue
                         if (DownloadEventFilter.isTemporaryOrIgnoredFile(name)) continue
 
+                        val lastModified = if (modIdx >= 0 && !cursor.isNull(modIdx)) cursor.getLong(modIdx) else 0L
                         val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childId)
+                        if (!safSeenTracker.shouldInspect(docUri.toString(), lastModified)) continue
                         if (!debouncer.shouldProcess(docUri.toString())) continue
                         inspectContentUri(docUri, name)
                     }
@@ -314,7 +358,9 @@ class DownloadWatcherService : Service() {
             action = Intent.ACTION_VIEW
             if (sourceUri != null) {
                 data = sourceUri
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (sourceUri.scheme == ContentResolver.SCHEME_CONTENT) {
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
             }
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -413,7 +459,13 @@ class DownloadWatcherService : Service() {
             maxBytes: Long = MAX_INSPECT_BYTES
         ): Boolean {
             return try {
-                resolver.openInputStream(uri)?.use { input ->
+                val inputStream = if (uri.scheme == ContentResolver.SCHEME_FILE) {
+                    val path = uri.path ?: return false
+                    File(path).inputStream()
+                } else {
+                    resolver.openInputStream(uri) ?: return false
+                }
+                inputStream.use { input ->
                     FileOutputStream(destFile).use { output ->
                         val buffer = ByteArray(8192)
                         var total = 0L
@@ -427,7 +479,7 @@ class DownloadWatcherService : Service() {
                             output.write(buffer, 0, read)
                         }
                     }
-                } ?: return false
+                }
                 true
             } catch (_: Exception) {
                 false

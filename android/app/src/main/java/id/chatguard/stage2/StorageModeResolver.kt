@@ -109,3 +109,23 @@ object FileStabilityChecker {
         return false
     }
 }
+
+class SafSeenTracker(
+    private val maxEntries: Int = 1_000
+) {
+    private val seen = object : LinkedHashMap<String, Long>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
+            return size > maxEntries
+        }
+    }
+
+    @Synchronized
+    fun shouldInspect(docUri: String, lastModified: Long): Boolean {
+        val prev = seen[docUri]
+        if (prev != null && prev == lastModified) {
+            return false
+        }
+        seen[docUri] = lastModified
+        return true
+    }
+}

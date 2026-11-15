@@ -90,4 +90,23 @@ class StorageModeResolverTest {
         )
         assertFalse(empty)
     }
+
+    @Test
+    fun `safSeenTracker skips already-scanned documents with same lastModified and reinspects when modified`() {
+        val tracker = SafSeenTracker(maxEntries = 2)
+
+        assertTrue(tracker.shouldInspect("content://tree/doc1", 1000L))
+        // Same docUri and same lastModified -> skip
+        assertFalse(tracker.shouldInspect("content://tree/doc1", 1000L))
+        // Same docUri with newer lastModified -> inspect
+        assertTrue(tracker.shouldInspect("content://tree/doc1", 2000L))
+        assertFalse(tracker.shouldInspect("content://tree/doc1", 2000L))
+
+        // Fill capacity and evict oldest (doc1)
+        assertTrue(tracker.shouldInspect("content://tree/doc2", 1000L))
+        assertTrue(tracker.shouldInspect("content://tree/doc3", 1000L))
+
+        // doc1 was evicted when doc3 was inserted, so it should be inspectable again
+        assertTrue(tracker.shouldInspect("content://tree/doc1", 2000L))
+    }
 }

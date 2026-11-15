@@ -5,6 +5,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import id.chatguard.core.model.NotificationAlert
 import id.chatguard.core.model.Verdict
+import id.chatguard.ui.OverlayPopupManager
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -13,6 +14,14 @@ import java.util.concurrent.CopyOnWriteArrayList
  * Privacy guarantee: Never persists or logs raw message contents to disk or network.
  */
 class ChatNotificationListener : NotificationListenerService() {
+
+    private val overlayPopupManager: OverlayPopupManager? by lazy {
+        try {
+            applicationContext?.let { OverlayPopupManager(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
@@ -58,6 +67,7 @@ class ChatNotificationListener : NotificationListenerService() {
     internal fun dispatchAlert(alert: NotificationAlert) {
         if (alert.verdict != Verdict.AMAN) {
             notifyAlert(alert)
+            overlayPopupManager?.showStage1(alert)
         }
     }
 

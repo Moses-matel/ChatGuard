@@ -30,6 +30,8 @@ import id.chatguard.data.ChatGuardDatabase
 import id.chatguard.network.ReputationClient
 import id.chatguard.scoring.PlainLanguageExplainer
 import id.chatguard.scoring.RiskScorer
+import id.chatguard.ui.OverlayPopupManager
+import id.chatguard.ui.SettingsPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,10 +55,18 @@ class DownloadWatcherService : Service() {
     @Volatile
     private var allowlist: Map<String, OfficialAppEntry> = emptyMap()
 
+    private val settingsPreferences: SettingsPreferences by lazy {
+        SettingsPreferences(applicationContext)
+    }
+
+    private val overlayPopupManager: OverlayPopupManager by lazy {
+        OverlayPopupManager(applicationContext)
+    }
+
     private val reputationClient: ReputationClient by lazy {
         val dao = ChatGuardDatabase.getInstance(applicationContext).reputationCacheDao()
         ReputationClient(
-            baseUrlProvider = { DEFAULT_REPUTATION_BASE_URL },
+            baseUrlProvider = { settingsPreferences.getServerUrl() },
             cacheDao = dao
         )
     }
@@ -348,7 +358,52 @@ class DownloadWatcherService : Service() {
         )
 
         if (report.verdict != Verdict.AMAN) {
-            postThreatNotification(report, sourceUri)
+            val explained = PlainLanguageExplainer.explain(report, settingsPreferences.getLocale())
+            overlayPopupManager.showStage2(
+                explained = explained,
+                report = report,
+                fileUri = sourceUri,
+                onDeleteFile = {
+                    serviceScope.launch {
+                        deleteObservedFile(sourceUri, file)
+                    }
+                },
+                onSubmitReport = { feedback ->
+                    serviceScope.launch {
+                        reputationClient.submitReport(feedback)
+                    }
+                }
+            )
+        }
+    }
+
+    private fun deleteObservedFile(sourceUri: Uri?, fallbackFile: File) {
+        try {
+            if (sourceUri != null) {
+                when (sourceUri.scheme) {
+                    ContentResolver.SCHEME_FILE -> {
+                        sourceUri.path?.let { File(it).delete() }
+                    }
+                    ContentResolver.SCHEME_CONTENT -> {
+                        val deletedByContract = try {
+                            if (DocumentsContract.isDocumentUri(this, sourceUri)) {
+                                DocumentsContract.deleteDocument(contentResolver, sourceUri)
+                            } else {
+                                false
+                            }
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (!deletedByContract) {
+                            contentResolver.delete(sourceUri, null, null)
+                        }
+                    }
+                }
+            }
+            if (fallbackFile.exists()) {
+                fallbackFile.delete()
+            }
+        } catch (_: Exception) {
         }
     }
 

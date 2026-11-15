@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.db import init_db
 from app.rate_limit import RateLimiterMiddleware
-from app.routes import check
+from app.routes import check, report
 
 
 @asynccontextmanager
@@ -20,6 +20,7 @@ app = FastAPI(
 
 app.add_middleware(RateLimiterMiddleware)
 app.include_router(check.router)
+app.include_router(report.router)
 
 
 @app.get("/health")

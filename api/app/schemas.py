@@ -24,3 +24,28 @@ class CheckResponse(BaseModel):
     threat_category: str | None = None
     official_cert_match: bool | None = None
     flagged_urls: list[str] = Field(default_factory=list)
+
+
+class ReportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sha256: str = Field(pattern=HEX64_REGEX)
+    file_type: Literal["apk", "pdf", "office", "archive", "unknown"]
+    package_name: str | None = None
+    cert_sha256: str | None = Field(default=None, pattern=HEX64_REGEX)
+    shown_verdict: Literal["AMAN", "MENCURIGAKAN", "BERBAHAYA"]
+    user_note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("sha256", "cert_sha256", mode="after")
+    @classmethod
+    def normalize_hex(cls, v: str | None) -> str | None:
+        if v is not None:
+            return v.lower()
+        return v
+
+
+class ReportResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["recorded"] = "recorded"
+

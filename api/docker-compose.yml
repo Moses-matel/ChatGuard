@@ -1,0 +1,19 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chatguard-api
+    ports:
+      - "8000:8000"
+    environment:
+      - CHATGUARD_DB_PATH=/data/chatguard.db
+      - CHATGUARD_RATE_LIMIT_REQUESTS=120
+      - CHATGUARD_RATE_LIMIT_WINDOW_SECONDS=60
+      - CHATGUARD_TRUST_PROXY_HEADERS=false
+    volumes:
+      - chatguard-data:/data
+    restart: unless-stopped
+
+volumes:
+  chatguard-data:

@@ -45,6 +45,7 @@ import id.chatguard.network.ReputationClient
 import id.chatguard.scoring.ExplainedReport
 import id.chatguard.scoring.PlainLanguageExplainer
 import id.chatguard.scoring.RiskScorer
+import id.chatguard.ui.SettingsPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,10 +60,14 @@ class SafeInspectActivity : ComponentActivity() {
 
     private var uiState by mutableStateOf<SafeInspectUiState>(SafeInspectUiState.Loading)
 
+    private val settingsPreferences: SettingsPreferences by lazy {
+        SettingsPreferences(applicationContext)
+    }
+
     private val reputationClient: ReputationClient by lazy {
         val dao = ChatGuardDatabase.getInstance(applicationContext).reputationCacheDao()
         ReputationClient(
-            baseUrlProvider = { DEFAULT_REPUTATION_BASE_URL },
+            baseUrlProvider = { settingsPreferences.getServerUrl() },
             cacheDao = dao
         )
     }
@@ -142,7 +147,7 @@ class SafeInspectActivity : ComponentActivity() {
                 allowlist = allowlist,
                 fromChat = true
             )
-            val explained = PlainLanguageExplainer.explain(report)
+            val explained = PlainLanguageExplainer.explain(report, settingsPreferences.getLocale())
             SafeInspectUiState.Result(report = report, explained = explained)
         } catch (_: Exception) {
             SafeInspectUiState.Error("Gagal memeriksa file. Silakan coba lagi.")
@@ -166,7 +171,6 @@ class SafeInspectActivity : ComponentActivity() {
 
     companion object {
         const val MAX_INSPECT_BYTES = 100L * 1024L * 1024L // 100 MB
-        private const val DEFAULT_REPUTATION_BASE_URL = "https://api.chatguard.id"
     }
 }
 

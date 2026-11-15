@@ -132,4 +132,73 @@ class StorageModeResolverTest {
         assertFalse(SafeFileDeleter.delete(context, fileUri))
         assertFalse(SafeFileDeleter.delete(context, null))
     }
+
+    @Test
+    fun `shouldAppendMediaId handles Downloads URI on all APIs and Files URI only below Android Q`() {
+        val downloadsUri = mockk<Uri>()
+        val filesUri = mockk<Uri>()
+        val itemUri = mockk<Uri>()
+
+        // Negative ID never appends
+        assertFalse(
+            DownloadWatcherService.shouldAppendMediaId(
+                id = -1L,
+                uri = downloadsUri,
+                downloadsUri = downloadsUri,
+                filesUri = filesUri,
+                sdkInt = 29
+            )
+        )
+
+        // Downloads URI appends on Android Q+ and below Q
+        assertTrue(
+            DownloadWatcherService.shouldAppendMediaId(
+                id = 42L,
+                uri = downloadsUri,
+                downloadsUri = downloadsUri,
+                filesUri = filesUri,
+                sdkInt = 29
+            )
+        )
+        assertTrue(
+            DownloadWatcherService.shouldAppendMediaId(
+                id = 42L,
+                uri = downloadsUri,
+                downloadsUri = downloadsUri,
+                filesUri = filesUri,
+                sdkInt = 28
+            )
+        )
+
+        // Files URI appends on Android 8/9 (< Q), but NOT on Q+
+        assertTrue(
+            DownloadWatcherService.shouldAppendMediaId(
+                id = 42L,
+                uri = filesUri,
+                downloadsUri = downloadsUri,
+                filesUri = filesUri,
+                sdkInt = 28
+            )
+        )
+        assertFalse(
+            DownloadWatcherService.shouldAppendMediaId(
+                id = 42L,
+                uri = filesUri,
+                downloadsUri = downloadsUri,
+                filesUri = filesUri,
+                sdkInt = 29
+            )
+        )
+
+        // Already-resolved item URI never appends
+        assertFalse(
+            DownloadWatcherService.shouldAppendMediaId(
+                id = 42L,
+                uri = itemUri,
+                downloadsUri = downloadsUri,
+                filesUri = filesUri,
+                sdkInt = 28
+            )
+        )
+    }
 }

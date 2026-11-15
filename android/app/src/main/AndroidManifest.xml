@@ -55,6 +55,7 @@
                 <data android:mimeType="application/zip" />
                 <data android:mimeType="application/x-rar-compressed" />
                 <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

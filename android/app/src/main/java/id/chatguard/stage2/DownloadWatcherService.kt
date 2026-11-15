@@ -1,9 +1,7 @@
 package id.chatguard.stage2
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.ContentResolver
 import android.content.Context
@@ -22,7 +20,6 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.core.app.NotificationCompat
 import id.chatguard.analyzer.FileAnalyzerDispatcher
-import id.chatguard.core.model.AnalysisReport
 import id.chatguard.core.model.OfficialAppEntry
 import id.chatguard.core.model.OfficialCertAllowlist
 import id.chatguard.core.model.Verdict
@@ -238,7 +235,13 @@ class DownloadWatcherService : Service() {
 
                 if (DownloadEventFilter.isTemporaryOrIgnoredFile(displayName)) return
 
-                itemUri = if (id >= 0 && uri == MediaStore.Downloads.EXTERNAL_CONTENT_URI) {
+                val downloadsUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                val filesUri = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    MediaStore.Files.getContentUri("external")
+                } else {
+                    null
+                }
+                itemUri = if (shouldAppendMediaId(id, uri, downloadsUri, filesUri)) {
                     Uri.withAppendedPath(uri, id.toString())
                 } else {
                     uri
@@ -387,39 +390,6 @@ class DownloadWatcherService : Service() {
         }
     }
 
-    private fun postThreatNotification(report: AnalysisReport, sourceUri: Uri?) {
-        val explained = PlainLanguageExplainer.explain(report)
-        val inspectIntent = Intent(this, SafeInspectActivity::class.java).apply {
-            action = Intent.ACTION_VIEW
-            if (sourceUri != null) {
-                data = sourceUri
-                if (sourceUri.scheme == ContentResolver.SCHEME_CONTENT) {
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-            }
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            report.sha256.hashCode(),
-            inspectIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, CHANNEL_ALERTS)
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
-            .setContentTitle(explained.title)
-            .setContentText(explained.whatInside)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("${explained.whatInside}\n${explained.impact}"))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .build()
-
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        manager?.notify(report.sha256.hashCode(), notification)
-    }
-
     private fun stopWatchers() {
         for (observer in fileObservers) {
             try {
@@ -461,7 +431,18 @@ class DownloadWatcherService : Service() {
         const val CHANNEL_ALERTS = "chatguard_alerts"
         const val NOTIFICATION_ID_FOREGROUND = 2001
         const val MAX_INSPECT_BYTES = 100L * 1024L * 1024L // 100 MB
-        private const val DEFAULT_REPUTATION_BASE_URL = "https://api.chatguard.id"
+
+        internal fun shouldAppendMediaId(
+            id: Long,
+            uri: Uri,
+            downloadsUri: Uri,
+            filesUri: Uri?,
+            sdkInt: Int = Build.VERSION.SDK_INT
+        ): Boolean {
+            if (id < 0) return false
+            return uri == downloadsUri ||
+                (sdkInt < Build.VERSION_CODES.Q && filesUri != null && uri == filesUri)
+        }
 
         internal fun resolveDisplayName(resolver: ContentResolver, uri: Uri): String? {
             if (uri.scheme == ContentResolver.SCHEME_FILE) {

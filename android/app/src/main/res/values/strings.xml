@@ -12,4 +12,6 @@
     <string name="impact_berbahaya_general">Opening this file may put your personal data, financial accounts, or device at risk. Delete it right away.</string>
     <string name="impact_mencurigakan">This file has unusual signs or could not be fully checked. Verify directly with the official sender before opening.</string>
     <string name="impact_aman">You can use this file normally, though always stay alert if asked for personal information.</string>
+    <string name="accessibility_service_description">Detects suspicious file names shown inside WhatsApp and Telegram chats before you download or open them. Screen text is inspected only in memory and never saved or uploaded.</string>
+    <string name="app_slogan">Aman dulu sebelum buka—deteksi file berbahaya secara pintar sebelum diunduh.</string>
 </resources>

@@ -26,7 +26,8 @@ data class OnboardingStatus(
     val overlayPermissionGranted: Boolean,
     val safFolderSelected: Boolean,
     val postNotificationsGranted: Boolean,
-    val safFolderCount: Int
+    val safFolderCount: Int,
+    val accessibilityServiceEnabled: Boolean = false
 )
 
 @Composable
@@ -39,7 +40,8 @@ fun OnboardingScreen(
     onRequestPostNotifications: () -> Unit,
     onStartProtectionService: () -> Unit,
     onInspectFileClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRequestAccessibilityService: () -> Unit = {}
 ) {
     val isId = language != SettingsPreferences.LANG_ENGLISH
 
@@ -125,6 +127,21 @@ fun OnboardingScreen(
                 onAction = onRequestPostNotifications
             )
         }
+
+        PermissionStepCard(
+            stepNumber = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) 5 else 4,
+            title = if (isId) "Pantau Layar Chat (Aksesibilitas)" else "Chat Screen Monitor (Accessibility)",
+            description = if (isId) {
+                "Memunculkan pop-up overlay saat Anda melihat file mencurigakan langsung di dalam chat WhatsApp/Telegram tanpa perlu notifikasi atau download."
+            } else {
+                "Shows an overlay pop-up when you view suspicious files inside WhatsApp/Telegram chats without notifications or downloading."
+            },
+            granted = status.accessibilityServiceEnabled,
+            grantedLabel = if (isId) "Aktif" else "Enabled",
+            pendingLabel = if (isId) "Opsional" else "Optional",
+            actionLabel = if (isId) "Buka Pengaturan Aksesibilitas" else "Open Accessibility Settings",
+            onAction = onRequestAccessibilityService
+        )
 
         Spacer(modifier = Modifier.height(4.dp))
 

@@ -5,7 +5,10 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import id.chatguard.core.model.NotificationAlert
 import id.chatguard.core.model.Verdict
+import id.chatguard.data.ThreatActivityStore
+import id.chatguard.scoring.Stage1Explainer
 import id.chatguard.ui.OverlayPopupManager
+import id.chatguard.ui.SettingsPreferences
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -26,6 +29,12 @@ class ChatNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         if (sbn == null) return
+        try {
+            if (applicationContext != null && !SettingsPreferences(applicationContext).isSafeModeEnabled()) {
+                return
+            }
+        } catch (_: Exception) {
+        }
 
         val packageName = sbn.packageName ?: return
         if (packageName.lowercase() !in NotificationAnalyzer.SUPPORTED_PACKAGES) {
@@ -66,6 +75,30 @@ class ChatNotificationListener : NotificationListenerService() {
 
     internal fun dispatchAlert(alert: NotificationAlert) {
         if (alert.verdict != Verdict.AMAN) {
+            try {
+                applicationContext?.let { ctx ->
+                    val isId = SettingsPreferences(ctx).getLanguage() != SettingsPreferences.LANG_ENGLISH
+                    val blocked = ThreatActivityStore.isBlocked(ctx, alert.fileName)
+                    val explanation = Stage1Explainer.explain(alert, isBlocked = blocked, isIndonesian = isId)
+                    ThreatActivityStore.recordAlert(
+                        context = ctx,
+                        sourcePackage = alert.sourcePackage,
+                        fileName = alert.fileName,
+                        verdict = if (blocked) Verdict.BERBAHAYA else alert.verdict,
+                        whatFound = explanation.whatFound,
+                        impact = explanation.impact,
+                        advice = explanation.advice,
+                        lessonTip = explanation.lessonTip,
+                        reasons = alert.reasons,
+                        actionTaken = if (blocked) {
+                            if (isId) "Diblokir" else "Blocked"
+                        } else {
+                            if (isId) "Diperingatkan" else "Warned"
+                        }
+                    )
+                }
+            } catch (_: Exception) {
+            }
             notifyAlert(alert)
             overlayPopupManager?.showStage1(alert)
         }

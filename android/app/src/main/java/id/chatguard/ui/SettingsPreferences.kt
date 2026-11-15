@@ -103,11 +103,38 @@ class SettingsPreferences(context: Context) {
         }
     }
 
+    fun isAgreementAccepted(): Boolean {
+        return prefs.getBoolean(KEY_AGREEMENT_ACCEPTED, false)
+    }
+
+    fun setAgreementAccepted(accepted: Boolean) {
+        prefs.edit().putBoolean(KEY_AGREEMENT_ACCEPTED, accepted).apply()
+    }
+
+    fun isSafeModeEnabled(): Boolean {
+        return prefs.getBoolean(KEY_SAFE_MODE_ENABLED, true)
+    }
+
+    fun setSafeModeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SAFE_MODE_ENABLED, enabled).apply()
+    }
+
+    fun isWalkthroughCompleted(): Boolean {
+        return prefs.getBoolean(KEY_WALKTHROUGH_COMPLETED, false)
+    }
+
+    fun setWalkthroughCompleted(completed: Boolean) {
+        prefs.edit().putBoolean(KEY_WALKTHROUGH_COMPLETED, completed).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "chatguard_settings"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_SAF_FOLDER_URI = "saf_folder_uri"
+        private const val KEY_AGREEMENT_ACCEPTED = "agreement_accepted"
+        private const val KEY_SAFE_MODE_ENABLED = "safe_mode_enabled"
+        private const val KEY_WALKTHROUGH_COMPLETED = "walkthrough_completed"
 
         const val DEFAULT_SERVER_URL = "https://api.chatguard.id"
         const val LANG_INDONESIAN = "in"

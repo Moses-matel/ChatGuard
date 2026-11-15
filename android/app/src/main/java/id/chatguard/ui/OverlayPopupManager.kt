@@ -23,12 +23,15 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import id.chatguard.core.model.AnalysisReport
 import id.chatguard.core.model.NotificationAlert
 import id.chatguard.core.model.Verdict
 import id.chatguard.core.model.VerdictFeedbackRequest
+import id.chatguard.data.ThreatActivityStore
 import id.chatguard.scoring.ExplainedReport
+import id.chatguard.scoring.Stage1Explainer
 import id.chatguard.stage2.DownloadWatcherService
 import id.chatguard.stage2.SafeInspectActivity
 
@@ -40,7 +43,10 @@ class OverlayPopupManager(context: Context) {
     private val windowManager: WindowManager? =
         appContext.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
 
+    @Volatile
     private var currentOverlayView: View? = null
+
+    fun isShowing(): Boolean = currentOverlayView != null
 
     fun showStage1(alert: NotificationAlert) {
         val isId = isIndonesian()
@@ -153,17 +159,22 @@ class OverlayPopupManager(context: Context) {
     }
 
     private fun buildStage1View(alert: NotificationAlert, isId: Boolean): View {
-        val container = createCardContainer(borderColor = verdictColor(alert.verdict))
+        val scroll = ScrollView(appContext)
+        val isBlocked = ThreatActivityStore.isBlocked(appContext, alert.fileName)
+        val effectiveVerdict = if (isBlocked) Verdict.BERBAHAYA else alert.verdict
+        val explanation = Stage1Explainer.explain(
+            alert = alert,
+            isBlocked = isBlocked,
+            isIndonesian = isId
+        )
 
-        val badge = createBadgeView(alert.verdict, isId)
+        val container = createCardContainer(borderColor = verdictColor(effectiveVerdict))
+
+        val badge = createBadgeView(effectiveVerdict, isId)
         container.addView(badge)
 
         val title = TextView(appContext).apply {
-            text = if (isId) {
-                "Peringatan File Chat Mencurigakan"
-            } else {
-                "Suspicious Chat File Warning"
-            }
+            text = explanation.title
             setTextColor(Color.parseColor("#111827"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setTypeface(typeface, Typeface.BOLD)
@@ -171,42 +182,95 @@ class OverlayPopupManager(context: Context) {
         }
         container.addView(title)
 
-        val senderLine = TextView(appContext).apply {
-            text = if (isId) "Pengirim: ${alert.sender}" else "Sender: ${alert.sender}"
-            setTextColor(Color.parseColor("#374151"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-        }
-        container.addView(senderLine)
-
         val fileLine = TextView(appContext).apply {
-            text = if (isId) "File: ${alert.fileName}" else "File: ${alert.fileName}"
+            text = "File: ${alert.fileName}"
             setTextColor(Color.parseColor("#1F2937"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, dp(2), 0, dp(6))
+            setPadding(0, dp(2), 0, dp(8))
         }
         container.addView(fileLine)
 
-        val warningText = TextView(appContext).apply {
-            val detail = alert.reasons.firstOrNull()?.takeIf { it.isNotBlank() }
-            text = detail ?: if (isId) {
-                "Jangan langsung memasang atau membuka file ini sebelum diperiksa oleh ChatGuard."
-            } else {
-                "Do not install or open this file until ChatGuard checks it."
+        container.addView(createSectionHeader(if (isId) "Apa yang ditemukan?" else "What was found?"))
+        container.addView(createSectionBody(explanation.whatFound))
+
+        container.addView(createSectionHeader(if (isId) "Dampak jika dibuka:" else "Impact if opened:"))
+        container.addView(createSectionBody(explanation.impact))
+
+        container.addView(createSectionHeader(if (isId) "Saran untuk Anda:" else "Advice:"))
+        container.addView(createSectionBody(explanation.advice))
+
+        container.addView(createSectionHeader(if (isId) "Sinyal Teknis:" else "Technical Signals:"))
+        val techBox = TextView(appContext).apply {
+            text = explanation.technicalSignals
+            setTextColor(Color.parseColor("#1F2937"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            typeface = Typeface.MONOSPACE
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F3F4F6"))
+                cornerRadius = dp(8).toFloat()
             }
-            setTextColor(Color.parseColor("#4B5563"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setPadding(0, 0, 0, dp(10))
         }
-        container.addView(warningText)
+        container.addView(techBox)
 
-        val closeBtn = Button(appContext).apply {
-            text = if (isId) "Tutup" else "Close"
-            setOnClickListener { dismiss() }
+        val promptQuestion = TextView(appContext).apply {
+            text = if (isId) "Blokir atau hapus file ini?" else "Block or delete this file?"
+            setTextColor(Color.parseColor("#111827"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(10), 0, dp(6))
         }
-        container.addView(closeBtn)
+        container.addView(promptQuestion)
 
-        return wrapWithOuterMargin(container)
+        val buttonRow = LinearLayout(appContext).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(2), 0, 0)
+        }
+
+        val yesBtn = Button(appContext).apply {
+            text = if (isId) "Ya, Blokir & Hapus" else "Yes, Block & Delete"
+            setBackgroundColor(Color.parseColor("#DC2626"))
+            setTextColor(Color.WHITE)
+            setOnClickListener {
+                ThreatActivityStore.blockFile(appContext, alert.fileName)
+                val deleted = ThreatActivityStore.tryDeleteDownloadedFile(appContext, alert.fileName)
+                val actionLabel = if (deleted) {
+                    if (isId) "Diblokir & Dihapus" else "Blocked & Deleted"
+                } else {
+                    if (isId) "Diblokir" else "Blocked"
+                }
+                ThreatActivityStore.updateLatestAction(appContext, alert.fileName, actionLabel)
+                val msg = if (deleted) {
+                    if (isId) "File diblokir & salinan lokal dihapus." else "File blocked & local copy deleted."
+                } else {
+                    if (isId) "File diblokir. Jangan unduh dari chat." else "File blocked. Do not download from chat."
+                }
+                Toast.makeText(appContext, msg, Toast.LENGTH_SHORT).show()
+                dismiss()
+            }
+        }
+
+        val noBtn = Button(appContext).apply {
+            text = if (isId) "Tidak" else "No"
+            setOnClickListener {
+                ThreatActivityStore.updateLatestAction(
+                    appContext,
+                    alert.fileName,
+                    if (isId) "Diabaikan" else "Dismissed"
+                )
+                dismiss()
+            }
+        }
+
+        buttonRow.addView(yesBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginEnd = dp(8)
+        })
+        buttonRow.addView(noBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.7f))
+        container.addView(buttonRow)
+
+        scroll.addView(container)
+        return wrapWithOuterMargin(scroll)
     }
 
     private fun buildStage2View(

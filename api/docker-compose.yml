@@ -13,6 +13,12 @@ services:
       - CHATGUARD_TRUST_PROXY_HEADERS=false
     volumes:
       - chatguard-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     restart: unless-stopped
 
 volumes:

@@ -5,10 +5,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /data && \
+    chown -R appuser:appuser /data
+
 COPY pyproject.toml README.md ./
+COPY app/ ./app/
+
 RUN pip install --no-cache-dir .
 
-COPY app/ ./app/
+USER appuser
 
 EXPOSE 8000
 

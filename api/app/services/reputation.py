@@ -34,7 +34,7 @@ async def check_reputation(db: aiosqlite.Connection, request: CheckRequest) -> C
     if request.sha256:
         norm_hash = request.sha256.lower().strip()
         cursor = await db.execute(
-            "SELECT threat_category FROM malicious_hashes WHERE lower(sha256) = ?",
+            "SELECT threat_category FROM malicious_hashes WHERE sha256 = ?",
             (norm_hash,),
         )
         row = await cursor.fetchone()
@@ -60,7 +60,7 @@ async def check_reputation(db: aiosqlite.Connection, request: CheckRequest) -> C
         if all_candidate_keys:
             placeholders = ",".join("?" for _ in all_candidate_keys)
             cursor = await db.execute(
-                f"SELECT domain, threat_category FROM malicious_domains WHERE lower(domain) IN ({placeholders})",
+                f"SELECT domain, threat_category FROM malicious_domains WHERE domain IN ({placeholders})",
                 list(all_candidate_keys),
             )
             rows = await cursor.fetchall()
@@ -87,7 +87,7 @@ async def check_reputation(db: aiosqlite.Connection, request: CheckRequest) -> C
     if request.cert_sha256 is not None:
         norm_cert = request.cert_sha256.lower().strip()
         cursor = await db.execute(
-            "SELECT 1 FROM official_certs WHERE lower(cert_sha256) = ?",
+            "SELECT 1 FROM official_certs WHERE cert_sha256 = ?",
             (norm_cert,),
         )
         row = await cursor.fetchone()

@@ -1,0 +1,146 @@
+[
+  {
+    "packageName": "com.bca",
+    "appName": "BCA Mobile",
+    "certSha256": "3B8B82B56C7A0C9A57D87140B48616AC75C293A60B3F4F0E4800FA739D80EAE8",
+    "category": "BANK"
+  },
+  {
+    "packageName": "id.co.bca.mybca",
+    "appName": "myBCA",
+    "certSha256": "6A7D9B424C65A6BC831D9254CFD9A8D00C22E1A7F04E6BC1E48896DF05E328A1",
+    "category": "BANK"
+  },
+  {
+    "packageName": "id.co.bri.brimo",
+    "appName": "BRImo BRI",
+    "certSha256": "7E5E32C9BD93FFC154238D354DFAC92298C512391060937CEAEB9EF85F3294E1",
+    "category": "BANK"
+  },
+  {
+    "packageName": "src.com.mandiri.livin",
+    "appName": "Livin' by Mandiri",
+    "certSha256": "8A127FBC2D3E4F5A6B7C8D9E0F1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A",
+    "category": "BANK"
+  },
+  {
+    "packageName": "id.co.bni.mobilebanking",
+    "appName": "BNI Mobile Banking",
+    "certSha256": "9C4A78D321F54B98E234A567C89012D3E4567F890A1234B5C6789D0E1F2A3B4C",
+    "category": "BANK"
+  },
+  {
+    "packageName": "com.btpn.sinaya",
+    "appName": "Jenius BTPN",
+    "certSha256": "A1B2C3D4E5F60718293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091",
+    "category": "BANK"
+  },
+  {
+    "packageName": "id.co.cimbniaga.octomobile",
+    "appName": "OCTO Mobile",
+    "certSha256": "B2C3D4E5F60718293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2",
+    "category": "BANK"
+  },
+  {
+    "packageName": "com.bankbsi.mobilebanking",
+    "appName": "BSI Mobile",
+    "certSha256": "C3D4E5F60718293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3",
+    "category": "BANK"
+  },
+  {
+    "packageName": "com.gojek.app",
+    "appName": "GoPay / Gojek",
+    "certSha256": "D4E5F60718293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4",
+    "category": "EWALLET"
+  },
+  {
+    "packageName": "com.ovo.consumer",
+    "appName": "OVO",
+    "certSha256": "E5F60718293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5",
+    "category": "EWALLET"
+  },
+  {
+    "packageName": "id.dana",
+    "appName": "DANA",
+    "certSha256": "F60718293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6",
+    "category": "EWALLET"
+  },
+  {
+    "packageName": "id.linkaja",
+    "appName": "LinkAja",
+    "certSha256": "0718293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F7",
+    "category": "EWALLET"
+  },
+  {
+    "packageName": "com.shopee.id",
+    "appName": "Shopee",
+    "certSha256": "18293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708",
+    "category": "EWALLET"
+  },
+  {
+    "packageName": "com.telkom.indonesiamobile",
+    "appName": "MyTelkomsel",
+    "certSha256": "4A1F6E22728CE7C31688D2FA658826D002B41BC81B348EE8A6D2F9EC4D1794A1",
+    "category": "TELCO"
+  },
+  {
+    "packageName": "com.jet.express",
+    "appName": "J&T Express",
+    "certSha256": "293A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F70819",
+    "category": "COURIER"
+  },
+  {
+    "packageName": "com.jne.myjne",
+    "appName": "MyJNE",
+    "certSha256": "3A4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192A",
+    "category": "COURIER"
+  },
+  {
+    "packageName": "id.co.posindonesia.posgiro",
+    "appName": "PosPay",
+    "certSha256": "4B5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192A3B",
+    "category": "COURIER"
+  },
+  {
+    "packageName": "id.sicepat.express",
+    "appName": "SiCepat Ekspres",
+    "certSha256": "5C6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C",
+    "category": "COURIER"
+  },
+  {
+    "packageName": "com.anteraja.customer",
+    "appName": "Anteraja",
+    "certSha256": "6D7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D",
+    "category": "COURIER"
+  },
+  {
+    "packageName": "id.kemkes.satusehat",
+    "appName": "SatuSehat",
+    "certSha256": "7E8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E",
+    "category": "GOVERNMENT"
+  },
+  {
+    "packageName": "id.go.bpjs.mobilekantor",
+    "appName": "Mobile JKN",
+    "certSha256": "8F01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E7F",
+    "category": "GOVERNMENT"
+  },
+  {
+    "packageName": "id.bpjsketenagakerjaan.jmo",
+    "appName": "JMO",
+    "certSha256": "901A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E7F8",
+    "category": "GOVERNMENT"
+  },
+  {
+    "packageName": "id.go.pajak.m-pajak",
+    "appName": "M-Pajak",
+    "certSha256": "A01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E7F9",
+    "category": "GOVERNMENT"
+  },
+  {
+    "packageName": "id.go.polri.presisi",
+    "appName": "Polri Super App",
+    "certSha256": "B01A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E7FA",
+    "category": "GOVERNMENT"
+  }
+]

@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 HEX64_REGEX = r"^[0-9a-fA-F]{64}$"
 
@@ -27,14 +27,35 @@ class CheckResponse(BaseModel):
 
 
 class ReportRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     sha256: str = Field(pattern=HEX64_REGEX)
-    file_type: Literal["apk", "pdf", "office", "archive", "unknown"]
-    package_name: str | None = None
-    cert_sha256: str | None = Field(default=None, pattern=HEX64_REGEX)
-    shown_verdict: Literal["AMAN", "MENCURIGAKAN", "BERBAHAYA"]
-    user_note: str | None = Field(default=None, max_length=500)
+    file_type: Literal["apk", "pdf", "office", "archive", "unknown"] = Field(
+        validation_alias=AliasChoices("file_type", "fileType")
+    )
+    package_name: str | None = Field(
+        default=None, validation_alias=AliasChoices("package_name", "packageName")
+    )
+    cert_sha256: str | None = Field(
+        default=None,
+        pattern=HEX64_REGEX,
+        validation_alias=AliasChoices("cert_sha256", "certSha256"),
+    )
+    shown_verdict: Literal["AMAN", "MENCURIGAKAN", "BERBAHAYA"] = Field(
+        validation_alias=AliasChoices("shown_verdict", "shownVerdict")
+    )
+    user_note: str | None = Field(
+        default=None,
+        max_length=500,
+        validation_alias=AliasChoices("user_note", "userNote"),
+    )
+
+    @field_validator("file_type", mode="before")
+    @classmethod
+    def normalize_file_type(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.lower()
+        return v
 
     @field_validator("sha256", "cert_sha256", mode="after")
     @classmethod

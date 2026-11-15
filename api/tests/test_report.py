@@ -228,3 +228,29 @@ async def test_report_rejects_raw_binary_body(client):
         headers={"content-type": "application/octet-stream"},
     )
     assert response.status_code in (415, 422)
+
+
+@pytest.mark.asyncio
+async def test_report_android_camelcase_payload_recorded_successfully(client, setup_test_db):
+    payload = {
+        "sha256": VALID_HASH,
+        "fileType": "APK",
+        "packageName": "com.fake.bank",
+        "certSha256": VALID_CERT,
+        "shownVerdict": "BERBAHAYA",
+        "userNote": "Suspicious APK from chat",
+    }
+    response = await client.post("/v1/report", json=payload)
+    assert response.status_code == 201
+    assert response.json() == {"status": "recorded"}
+
+    async with aiosqlite.connect(setup_test_db) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM verdict_reports WHERE sha256 = ?", (VALID_HASH,)) as cursor:
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row["file_type"] == "apk"
+            assert row["package_name"] == "com.fake.bank"
+            assert row["cert_sha256"] == VALID_CERT
+            assert row["shown_verdict"] == "BERBAHAYA"
+            assert row["user_note"] == "Suspicious APK from chat"

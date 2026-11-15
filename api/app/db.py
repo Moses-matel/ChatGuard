@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS malicious_hashes (
 );
 
 CREATE TABLE IF NOT EXISTS malicious_domains (
-    domain TEXT PRIMARY KEY,
+    domain TEXT PRIMARY KEY COLLATE NOCASE,
     threat_category TEXT NOT NULL
 );
 
@@ -38,6 +38,8 @@ async def init_db(db_path: str) -> None:
     if dirname:
         os.makedirs(dirname, exist_ok=True)
     async with aiosqlite.connect(db_path) as db:
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("PRAGMA synchronous=NORMAL;")
         await db.executescript(CREATE_TABLES_SQL)
         await db.commit()
 

@@ -82,6 +82,9 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        if request.url.path == "/health":
+            return await call_next(request)
+
         ip = self._get_client_ip(request)
         now = time.monotonic()
         window = float(self.window_seconds)

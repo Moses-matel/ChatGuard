@@ -15,6 +15,42 @@ async def test_health_ok():
 
 
 @pytest.mark.asyncio
+async def test_rate_limiter_exempts_health_while_limiting_v1_routes():
+    from app.rate_limit import RateLimiterMiddleware
+
+    app = FastAPI()
+    app.add_middleware(RateLimiterMiddleware, requests_limit=2, window_seconds=10)
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    @app.post("/v1/check")
+    async def check():
+        return {"verdict": "unknown"}
+
+    transport = ASGITransport(app=app, client=("192.168.1.101", 50000))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Exhaust /v1/check limit
+        for _ in range(2):
+            res = await client.post("/v1/check")
+            assert res.status_code == 200
+
+        blocked = await client.post("/v1/check")
+        assert blocked.status_code == 429
+
+        # /health must remain exempt even when IP is rate-limited
+        for _ in range(5):
+            health_res = await client.get("/health")
+            assert health_res.status_code == 200
+            assert health_res.json() == {"status": "ok"}
+
+        # /v1/check is still rate-limited
+        still_blocked = await client.post("/v1/check")
+        assert still_blocked.status_code == 429
+
+
+@pytest.mark.asyncio
 async def test_rate_limiter_returns_429_when_exceeded():
     from app.rate_limit import RateLimiterMiddleware
 
@@ -212,3 +248,29 @@ async def test_get_db(temp_db_path, monkeypatch):
         row = await cursor.fetchone()
         assert row[0] == 1
         break
+
+
+@pytest.mark.asyncio
+async def test_init_db_enables_wal_and_nocase_domains(temp_db_path):
+    from app.db import init_db
+
+    await init_db(temp_db_path)
+
+    async with aiosqlite.connect(temp_db_path) as db:
+        cursor = await db.execute("PRAGMA journal_mode;")
+        row = await cursor.fetchone()
+        assert row[0].lower() == "wal"
+
+        await db.execute(
+            "INSERT INTO malicious_domains (domain, threat_category) VALUES (?, ?)",
+            ("Phish.Example.COM", "phishing"),
+        )
+        await db.commit()
+
+        cursor = await db.execute(
+            "SELECT threat_category FROM malicious_domains WHERE domain = ?",
+            ("phish.example.com",),
+        )
+        match = await cursor.fetchone()
+        assert match is not None
+        assert match[0] == "phishing"
